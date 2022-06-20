@@ -4,17 +4,39 @@ pragma solidity >=0.7.0 <0.9.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/math/SafeMath.sol";
 
 contract Distributor is Ownable
 {
-    /*
-    constructor(address gammaAdd) public
+    event Authorized(address,bool);
+    event AuthorizationToggled(address, bool, bool);
+    event DistributionFrozen(bool);
+    event TokenAdded(address);
+    event TokenRemoved(address);
+    event ReceiverUpdate(address, uint, uint, uint, bool);
+    event DistributionOn(uint);
+    event balanceInsufficient(address, uint);
+    event PassedCheck(address, bool);
+
+    constructor()
     {
-        
-        addToken(gammaAdd);
+        lastDistribution = block.timestamp;   
     }
-    */
+
+    uint lastDistribution;
+
+    modifier onlyWeekly 
+    {
+      require(block.timestamp > lastDistribution + 604740);
+      _;
+    }
+
+    bool recieverEditable = true;
+
+    modifier editProtection 
+    {
+      require(recieverEditable == true);
+      _;
+    }
 
     mapping(address => bool) public authorized;
     
@@ -22,7 +44,7 @@ contract Distributor is Ownable
     {
         require(_user != address(0),"_user should not be zero address");
         authorized[_user] = true;
-        //emit Authorized(_user, true);        
+        emit Authorized(_user, true);        
     }
 
     function updateAuthorizedAddress(address _user) external onlyOwner 
@@ -30,18 +52,18 @@ contract Distributor is Ownable
         require(_user != address(0),"_user should no be zero address");
         bool prev = authorized[_user];
         authorized[_user] = !prev;
-        //emit AuthorizationToggled(_user, prev, !prev);
+        emit AuthorizationToggled(_user, prev, !prev);
     }
 
-    modifier onlyAuthorized() 
+    modifier onlyAuthorized 
     {
         require(authorized[_msgSender()] == true, "only authorized user is allowed");
         _;
     }
 
-    bool frozenVal = false;
+    bool internal frozenVal = false;
 
-    modifier checkFrozen()
+    modifier checkFrozen
     {
         require(frozenVal == false, "Tranzactions have been frozen");
         _;
@@ -50,12 +72,14 @@ contract Distributor is Ownable
     function freezeSending() external onlyOwner returns(bool)
     {
         frozenVal = true;
+        emit DistributionFrozen(true);
         return frozenVal;
     }
 
     function unfreezeSending() external onlyOwner returns(bool)
     {
         frozenVal = false;
+        emit DistributionFrozen(false);
         return frozenVal;
     }
 
@@ -63,31 +87,22 @@ contract Distributor is Ownable
     uint public tokenTypes = 0;
     //uint public token.length();
     
-    function addToken(address _token) external onlyAuthorized
+    function addToken(address _token) external onlyAuthorized editProtection
     {
         token[tokenTypes] = _token;
         tokenTypes = tokenTypes + 1;
-        //emit newStableCoin(_token);
+        emit TokenAdded(_token);
     }
 
-    //Use this to cross check if the right token is being removed in removedStabes
-    /*
-    function getTokenAddressByID(uint _tokenID) external view onlyAuthorized returns(address)
-    {
-        address tokenAdd = token[_tokenID];
-        return tokenAdd;    
-    }
-    */
-
-    function removeToken(uint _tokenID) external onlyAuthorized
+    function removeToken(uint _tokenID) external onlyAuthorized editProtection
     {
         
         uint lastToken = tokenTypes - 1;
-        //oldToken = token[_tokenID];
+        address oldToken = token[_tokenID];
         token[_tokenID] = token[lastToken];
         token.pop();
         tokenTypes = tokenTypes - 1;
-        //emit removedStableCoin(oldToken);
+        emit TokenRemoved(oldToken);
     }
 
     //Use this to cross check if the right token is being removed in removedStabes
@@ -97,12 +112,9 @@ contract Distributor is Ownable
         return tokenAdd;
     } 
 
-    //Send funds to smart contract
-    
+    //Send funds to smart contract  
     function deposit(uint _amount, uint _tokenID) public payable 
-    {
-        uint _minAmount = 0.01*(10**18);
-        require(_amount >= _minAmount, "Amount less than minimum amount");  
+    {  
         IERC20(getTokenAddressByID(_tokenID)).transferFrom(msg.sender, address(this), _amount);
     }
 
@@ -124,96 +136,91 @@ contract Distributor is Ownable
     uint totalDistributions = 0;
 
     receiverStruct[] public receiverList;
+    uint[] public balanceNeeded;
 
-    function AddReceiver(address _user, uint _tokenID, uint _amt) external onlyAuthorized
+    function AddReceiver(address _receiverAdd, uint _tokenID, uint _receiveAmt) external onlyAuthorized editProtection
     {
-        receiverList[totalDistributions] = receiverStruct(_user, totalDistributions, _tokenID, _amt, true);
+        receiverList[totalDistributions] = receiverStruct(_receiverAdd, totalDistributions, _tokenID, _receiveAmt, true);
+        emit ReceiverUpdate(_receiverAdd, totalDistributions, _tokenID, _receiveAmt, true);
         totalDistributions = totalDistributions + 1;
-    }
-
-    
-    //cross checking
-    /*
-    function receiverInfoByID(uint distributionID) public view returns (address, uint256, uint256, bool) 
-    {
-        address _receiverAdd = receiverList[distributionID].receiverAdd;
-        uint256 _tokenID = receiverList[distributionID].tokenID;
-        uint256 _receiveAmt = receiverList[distributionID].receiveAmt;
-        bool _willReceive = receiverList[distributionID].willReceive;
-        address _receiverAdd = receiverList[distributionID].receiverAdd;
-        uint256 _tokenID = receiverList[distributionID].tokenID;
-        uint256 _receiveAmt = receiverList[distributionID].receiveAmt;
-        bool _willReceive = receiverList[distributionID].willReceive;
-
+        balanceNeeded[_tokenID] = balanceNeeded[_tokenID] + _receiveAmt;
         
-        return (_receiveAmt, _tokenID, _receiveAmt, _willReceive);
-    }*/
-
-    function UpdateReceiver(address _receiverAdd, uint _distributionID, uint _tokenID, uint _receiveAmt, bool _willReceive) external onlyAuthorized
-    {
-        receiverList[_distributionID] = receiverStruct(_receiverAdd, _distributionID, _tokenID, _receiveAmt, _willReceive);
     }
 
-    bool balanceSufficient = false;
-
-
-    function checkSufficient() public onlyAuthorized returns(string memory)
+    function UpdateReceiver(address _receiverAdd, uint _distributionID, uint _tokenID, uint _receiveAmt, bool _willReceive) external onlyAuthorized editProtection
     {
-        uint[] memory balanceCheck;
-        uint[] memory balanceNeeded; 
+        uint previousAmt = receiverList[_distributionID].receiveAmt;
+        balanceNeeded[_tokenID] = balanceNeeded[_tokenID] - previousAmt;  
+        
+        receiverList[_distributionID] = receiverStruct(_receiverAdd, _distributionID, _tokenID, _receiveAmt, _willReceive);
+        emit ReceiverUpdate(_receiverAdd, _distributionID, _tokenID, _receiveAmt, _willReceive);
+        
+        balanceNeeded[_tokenID] = balanceNeeded[_tokenID] + _receiveAmt;
+    }
+
+    bool internal balanceSufficient = false;
+
+    function checkSufficient() public onlyAuthorized 
+    {
+        uint checkFails = 0;
 
         for(uint _tokenID = 0; _tokenID < tokenTypes; _tokenID++)
-        { 
-            
-            for(uint j = 0; j < totalDistributions; j++)
+        {
+            uint currentBalance = getBalanceByID(_tokenID);
+            uint neededBalance = balanceNeeded[_tokenID];
+            address theToken = token[_tokenID];
+
+            if(neededBalance > currentBalance)
             {
-                uint currentAmount = receiverList[j].receiveAmt;
-                uint currentTokenID = receiverList[j].tokenID;
-                balanceNeeded[currentTokenID] = balanceNeeded[currentTokenID] + currentAmount;
-            }     
-            
-            balanceCheck[_tokenID] = getBalanceByID(_tokenID);
-            
-            if(balanceCheck[_tokenID] >= balanceNeeded[_tokenID])
-            {
-                balanceSufficient = true;
-                
+                checkFails = checkFails + 1;
+
+                uint missingBalance = neededBalance - currentBalance;
+
+                emit PassedCheck(theToken, false);
+                emit balanceInsufficient(theToken, missingBalance);
+
             }
-
-            //address tokenAddress = getTokenAddressByID(_tokenID);
-
+            
+            //balanceSufficient = true; 
             else
             {
-                return "Insufficient funds in contract";
+                emit PassedCheck(theToken, true);
             }
-        
+                    
+            
         }
 
-        return "Balance Sufficient";
+        if(checkFails > 0)
+        {
+            balanceSufficient = false;
+        }
 
-        
-
-       
+        if(checkFails == 0)
+        {
+            balanceSufficient = true;
+            recieverEditable = false;
+        }
 
     }
 
-    function distributeToAll() external onlyAuthorized
+    function refreshCheck() external onlyAuthorized
     {
+        balanceSufficient = false;
+        recieverEditable = true;
+    }
+        
+    function distributeToAll() external payable onlyAuthorized onlyWeekly
+    {
+        require(balanceSufficient == true, "Insufficient balance");
+
         for(uint i = 0; i < totalDistributions; i++)
         {
             IERC20(getTokenAddressByID(receiverList[i].tokenID)).transferFrom(address(this), receiverList[i].receiverAdd, receiverList[i].receiveAmt);
         }
-    } 
 
-    
+        balanceSufficient = false;
+        lastDistribution = block.timestamp;
+        emit DistributionOn(lastDistribution);
+    }   
     
 }
-
-
-
-
-
-
-
-
-
