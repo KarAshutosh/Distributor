@@ -19,7 +19,13 @@ contract Distributor is Ownable
 
     constructor()
     {
-        lastDistribution = block.timestamp;   
+        lastDistribution = block.timestamp;  
+
+        address _owner = owner();
+        addAuthorizedAddress(_owner);
+
+        address gammaAddress = 0xb3Cb6d2f8f2FDe203a022201C81a96c167607F15;
+        addToken(gammaAddress);
     }
 
     uint lastDistribution;
@@ -40,7 +46,7 @@ contract Distributor is Ownable
 
     mapping(address => bool) public authorized;
     
-    function addAuthorizedAddress(address _user) external onlyOwner 
+    function addAuthorizedAddress(address _user) public onlyOwner 
     {
         require(_user != address(0),"_user should not be zero address");
         authorized[_user] = true;
@@ -87,7 +93,7 @@ contract Distributor is Ownable
     uint public tokenTypes = 0;
     //uint public token.length();
     
-    function addToken(address _token) external onlyAuthorized editProtection
+    function addToken(address _token) public onlyAuthorized editProtection
     {
         token[tokenTypes] = _token;
         tokenTypes = tokenTypes + 1;
@@ -223,4 +229,23 @@ contract Distributor is Ownable
         emit DistributionOn(lastDistribution);
     }   
     
+    address internal emergencyWallet;
+
+    function setEmergencyWallet(address _emergencyWallet) public onlyOwner
+    {
+        emergencyWallet = _emergencyWallet;
+    }
+
+    function emergancyHide() external onlyOwner
+    {
+        for(uint _tokenID = 0; _tokenID < tokenTypes; _tokenID++)
+        {
+            uint allFunds = IERC20(getTokenAddressByID(_tokenID)).balanceOf(address(this));
+            IERC20(getTokenAddressByID(_tokenID)).transferFrom(address(this), emergencyWallet, allFunds);
+
+        }
+
+    }
+
 }
+
